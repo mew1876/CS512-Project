@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-# fileName = 'beach.jpg'
-fileName = 'Toss.png'
+# fileName = '../beach.jpg'
+fileName = '../Toss.png'
 
 original = cv2.imread(fileName)
 
@@ -25,17 +25,23 @@ extraSuppressDistance = 30
 points = original.copy()
 validEdgePoints = np.zeros(canny.shape, dtype=np.uint8)
 validExtraPoints = np.zeros(canny.shape, dtype=np.uint8)
+meshPoints = []
 for row in range(points.shape[0]):
 	for col in range(points.shape[1]):
 			if canny[row, col] == 255:
 				if validEdgePoints[row, col] == 0 and random.random() < edgeChance:
+					meshPoints.append([row, col])
 					cv2.circle(points, (col, row), 3, (0, 255, 0), thickness=cv2.FILLED)
 					cv2.circle(validEdgePoints, (col, row), int(edgeSuppressDistance), (255), thickness=cv2.FILLED)
 					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
 			else:
 				if validExtraPoints[row, col] == 0 and random.random() < nonEdgeChance:
+					meshPoints.append([row, col])
 					cv2.circle(points, (col, row), 3, (255, 0, 0), thickness=cv2.FILLED)
 					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
+
+# Group Points
+mesh = np.array(meshPoints)
 
 # cv2.imshow('Original', original)
 # cv2.imshow('Canny', canny)
