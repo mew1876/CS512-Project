@@ -29,6 +29,8 @@ points = original.copy()
 validEdgePoints = np.zeros(canny.shape, dtype=np.uint8)
 validExtraPoints = np.zeros(canny.shape, dtype=np.uint8)
 meshPoints = []
+rect = (0, 0, original.shape[1], original.shape[0])
+subdiv = cv2.Subdiv2D(rect);
 for row in range(points.shape[0]):
 	for col in range(points.shape[1]):
 			if canny[row, col] == 255 or processedSaliency[row, col] == 255:
@@ -37,10 +39,12 @@ for row in range(points.shape[0]):
 					distance = edgeSuppressDistance if processedSaliency[row, col] == 0 else int(edgeSuppressDistance * 0.9)
 					cv2.circle(validEdgePoints, (col, row), distance, (255), thickness=cv2.FILLED)
 					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
+					subdiv.insert((col,row))
 			else:
 				if validExtraPoints[row, col] == 0 and random.random() < nonEdgeChance:
 					meshPoints.append([row, col])
 					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
+					subdiv.insert((col,row))
 
 # Group Points
 mesh = np.array(meshPoints)
@@ -59,9 +63,22 @@ for i, (row, col) in enumerate(mesh):
 	cv2.circle(points, (col, row), 3, colors[clustering.labels_[i] + 1], thickness=cv2.FILLED)
 
 
+# Draw Delaunay Triangulation 
+edgeList = subdiv.getEdgeList();
+size = original.shape
+triangulation = original.copy()
+for edge in edgeList:
+    pt1 = (edge[0], edge[1])
+    pt2 = (edge[2], edge[3])
+    # if rect contains point 1 and point 2 and point 3
+    if not pt1[0] < rect[0] and not pt1[1] < rect[1] and not pt1[0] > rect[2] and not pt1[1] > rect[3]:
+    	if not pt2[0] < rect[0] and not pt2[1] < rect[1] and not pt2[0] > rect[2] and not pt2[1] > rect[3]:
+		        cv2.line(triangulation, pt1, pt2, (0,0,0), 1, cv2.LINE_8, 0)
+
 # cv2.imshow('Original', original)
 # cv2.imshow('Canny', canny)
 # cv2.imshow('Saliency', saliency)
 # cv2.imshow('Processed', processedSaliency)
 cv2.imshow('Points', points)
+cv2.imshow('Triangulation', triangulation)
 cv2.waitKey(0)
