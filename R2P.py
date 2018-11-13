@@ -67,8 +67,7 @@ def drawtriangles(image, mesh):
 
 def drawPoints(image, mesh, clustering, numBoundaryPoints):
 	colors = [(0,0,0)]
-	for i in range(len(set(clustering.labels_))):
-		# color = np.uint8([[[random.randint(0, 360), 255, 255]]])
+	for i in range(len(set(clustering.labels_)) - 1):
 		color = np.uint8([[[25 * i, 255, 255]]])
 		color = tuple(cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0,0].tolist())
 		colors.append(color)
@@ -85,22 +84,30 @@ def getEdgeLengths(clusteringInfo):
 		edgeLengths.append(edgeILengths)
 	return edgeLengths
 
-def getClusterInfo(mesh, clustering):
+def getClusterInfo(mesh, clustering, saliency):
 	numClusters = len(set(clustering.labels_))
 	clusters = []
 	areas = []
-	for i in range(numClusters + 1):
+	centers = []
+	saliencyScores = []
+	for i in range(numClusters):
 		clusters.append([])
+		saliencyScores.append(0)
 	for index, label in enumerate(clustering.labels_):
 		clusters[label + 1].append(mesh[index])
-	for cluster in clusters:
+		saliencyScores[label + 1] += (saliency[mesh[index][0], mesh[index][1]])
+	for index, cluster in enumerate(clusters):
 		if len(cluster) == 0:
 			continue
 		contour = np.array(cluster)
 		hull = cv2.convexHull(contour)
 		moments = cv2.moments(contour)
-		areas.append((cv2.contourArea(hull), (moments['m01']/moments['m00'], moments['m10']/moments['m00'])))
-	return areas[1:]
+		areas.append(cv2.contourArea(hull))
+		centers.append((moments['m01']/moments['m00'], moments['m10']/moments['m00']))
+	return list(zip(areas, centers, saliencyScores))
+
+# def reorderBySaliency(clustering, clusteringInfo):
+	
 
 def graphMatch(sourceClusteringInfo, referenceClusteringInfo):
 	# Get edge lengths
@@ -144,7 +151,7 @@ def processImage(image):
 	mesh, numBoundaryPoints = createMesh(canny, processedSaliency)
 	meshWithoutBoundaries = np.array(mesh[numBoundaryPoints:])
 	clustering = clusterPoints(meshWithoutBoundaries)
-	return mesh, clustering, numBoundaryPoints
+	return mesh, saliency, clustering, numBoundaryPoints
 
 def drawMesh(image, mesh, clustering, numBoundaryPoints):
 	meshImage = image.copy()
@@ -163,14 +170,14 @@ def main():
 	# sourceName = '../lego.png'
 
 	source = cv2.imread(sourceName)
-	sourceMesh, sourceClustering, sourceNumBoundaryPoints = processImage(source)
-	sourceClusteringInfo = getClusterInfo(sourceMesh, sourceClustering)
+	sourceMesh, sourceSaliency, sourceClustering, sourceNumBoundaryPoints = processImage(source)
+	sourceClusteringInfo = getClusterInfo(sourceMesh, sourceClustering, sourceSaliency)
+	# reorderBySaliency(sourceClustering, sourceClusteringInfo)
 
 	reference = cv2.imread(referenceName)
-	referenceMesh, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
-	referenceClusteringInfo = getClusterInfo(referenceMesh, referenceClustering)
-
-	# somehow sort objects by saliency
+	referenceMesh, referenceSaliency, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
+	referenceClusteringInfo = getClusterInfo(referenceMesh, referenceClustering, referenceSaliency)
+	# reorderBySaliency(referenceClustering, referenceClusteringInfo)
 
 	nObjects = 3
 	matching = graphMatch(sourceClusteringInfo[:nObjects], referenceClusteringInfo[:nObjects])
