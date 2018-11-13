@@ -67,54 +67,67 @@ def drawtriangles(image, mesh):
 
 def drawPoints(image, mesh, clustering, numBoundaryPoints):
 	colors = [(0,0,0)]
-	for i in range(len(clustering.core_sample_indices_)):
-		color = np.uint8([[[random.randint(0, 360), 255, 255]]])
+	for i in range(len(set(clustering.labels_))):
+		# color = np.uint8([[[random.randint(0, 360), 255, 255]]])
+		color = np.uint8([[[25 * i, 255, 255]]])
 		color = tuple(cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0,0].tolist())
 		colors.append(color)
 	for i, (row, col) in enumerate(mesh):
 		color = colors[clustering.labels_[i - numBoundaryPoints] + 1] if i >= numBoundaryPoints else (255, 255, 255)
 		cv2.circle(image, (col, row), 3, color, thickness=cv2.FILLED)
 
-def getEdgeLengths(mesh):
+def getEdgeLengths(clusteringInfo):
 	edgeLengths = []
-	for i in range(len(mesh)):
+	for i in range(len(clusteringInfo)):
 		edgeILengths = []
-		for j in range(len(mesh)):
-			edgeILengths.append(((mesh[i, 0] - mesh[j, 0]) ** 2 + (mesh[i, 1] - mesh[j, 1]) ** 2) ** 0.5)
+		for j in range(len(clusteringInfo)):
+			edgeILengths.append(((clusteringInfo[i][1][0] - clusteringInfo[j][1][0]) ** 2 + (clusteringInfo[i][1][1] - clusteringInfo[j][1][1]) ** 2) ** 0.5)
 		edgeLengths.append(edgeILengths)
 	return edgeLengths
 
-def getClusterAreas(clustering):
-	pass
+def getClusterInfo(mesh, clustering):
+	numClusters = len(set(clustering.labels_))
+	clusters = []
+	areas = []
+	for i in range(numClusters + 1):
+		clusters.append([])
+	for index, label in enumerate(clustering.labels_):
+		clusters[label + 1].append(mesh[index])
+	for cluster in clusters:
+		if len(cluster) == 0:
+			continue
+		contour = np.array(cluster)
+		hull = cv2.convexHull(contour)
+		moments = cv2.moments(contour)
+		areas.append((cv2.contourArea(hull), (moments['m01']/moments['m00'], moments['m10']/moments['m00'])))
+	return areas[1:]
 
-def graphMatch(sourceMesh, sourceClustering, referenceMesh, referenceClustering):
-	# Get cluster areas
-	
+def graphMatch(sourceClusteringInfo, referenceClusteringInfo):
 	# Get edge lengths
-	sourceEdges = getEdgeLengths(sourceMesh)
-	refEdges = getEdgeLengths(referenceMesh)
+	sourceEdges = getEdgeLengths(sourceClusteringInfo)
+	refEdges = getEdgeLengths(referenceClusteringInfo)
 	# Create affinity matrix
-	dimension = sourceMesh.shape[0] * referenceMesh.shape[0]
+	dimension = len(sourceClusteringInfo) * len(referenceClusteringInfo)
 	affinity = np.ndarray(shape=(dimension, dimension), dtype=float)
 	for row in range(dimension):
-		sourceIndex1 = row // referenceMesh.shape[0]
-		refIndex1 = row % referenceMesh.shape[0]
+		sourceIndex1 = row // len(referenceClusteringInfo)
+		referenceIndex1 = row % len(referenceClusteringInfo)
 		for col in range(dimension):
-			sourceIndex2 = col // sourceMesh.shape[0]
-			refIndex2 = col % sourceMesh.shape[0]
-			if sourceIndex1 == sourceIndex2 and refIndex1 == refIndex2:
-				affinity[row, col] = min(sourceMesh[sourceIndex1][0], referenceMesh[refIndex1][0]) / max(sourceMesh[sourceIndex1][0], referenceMesh[refIndex1][0])
-			elif sourceIndex1 != sourceIndex2 and refIndex1 != refIndex2:
-				affinity[row, col] = 1 / abs(sourceEdges[sourceIndex1][sourceIndex2] - refEdges[refIndex1][refIndex2])
+			sourceIndex2 = col // len(sourceClusteringInfo)
+			referenceIndex2 = col % len(sourceClusteringInfo)
+			if sourceIndex1 == sourceIndex2 and referenceIndex1 == referenceIndex2:
+				affinity[row, col] = min(sourceClusteringInfo[sourceIndex1][0], referenceClusteringInfo[referenceIndex1][0]) / max(sourceClusteringInfo[sourceIndex1][0], referenceClusteringInfo[referenceIndex1][0])
+			elif sourceIndex1 != sourceIndex2 and referenceIndex1 != referenceIndex2:
+				affinity[row, col] = 1 / abs(sourceEdges[sourceIndex1][sourceIndex2] - refEdges[referenceIndex1][referenceIndex2])
 			else:
 				affinity[row, col] = 0
 	# Find best matching
 	bestMatch = []
 	bestScore = 0
-	for indices in itertools.permutations(range(referenceMesh.shape[0])):
+	for indices in itertools.permutations(range(len(referenceClusteringInfo))):
 		matchVector = []
 		for index in indices:
-			match = [0] * referenceMesh.shape[0]
+			match = [0] * len(referenceClusteringInfo)
 			match[index] = 1
 			matchVector.extend(match)
 		matchVector = np.array(matchVector)
@@ -131,10 +144,13 @@ def processImage(image):
 	mesh, numBoundaryPoints = createMesh(canny, processedSaliency)
 	meshWithoutBoundaries = np.array(mesh[numBoundaryPoints:])
 	clustering = clusterPoints(meshWithoutBoundaries)
+	return mesh, clustering, numBoundaryPoints
+
+def drawMesh(image, mesh, clustering, numBoundaryPoints):
 	meshImage = image.copy()
 	drawtriangles(meshImage, mesh)
 	drawPoints(meshImage, mesh, clustering, numBoundaryPoints)
-	return mesh, clustering, numBoundaryPoints, meshImage
+	return meshImage
 
 def main():
 	# sourceName = '../beach.jpg'
@@ -147,9 +163,24 @@ def main():
 	# sourceName = '../lego.png'
 
 	source = cv2.imread(sourceName)
+	sourceMesh, sourceClustering, sourceNumBoundaryPoints = processImage(source)
+	sourceClusteringInfo = getClusterInfo(sourceMesh, sourceClustering)
+
 	reference = cv2.imread(referenceName)
-	sourceMesh, sourceClustering, sourceNumBoundaryPoints, sourceMeshImage = processImage(source)
-	referenceMesh, referenceClustering, referenceNumBoundaryPoints, referenceMeshImage = processImage(reference)
+	referenceMesh, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
+	referenceClusteringInfo = getClusterInfo(referenceMesh, referenceClustering)
+
+	# somehow sort objects by saliency
+
+	nObjects = 3
+	matching = graphMatch(sourceClusteringInfo[:nObjects], referenceClusteringInfo[:nObjects])
+
+	# use matching to reorder clusters (so corresponding clusters get matching colors)
+
+	print(matching)
+
+	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceNumBoundaryPoints)
+	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceNumBoundaryPoints)
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
