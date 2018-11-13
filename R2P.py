@@ -5,9 +5,9 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 
 def edgeDetection(image):
-	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-	bilateral = cv2.bilateralFilter(gray, 25, 300, 300)
-	canny = cv2.Canny(bilateral, 25, 15)
+	gray = image #cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+	bilateral = cv2.bilateralFilter(gray, 25, 600, 600)
+	canny = cv2.Canny(bilateral, 38, 15)
 	return canny
 
 def getSaliency(image):
@@ -48,7 +48,7 @@ def createMesh(canny, saliency):
 	return	np.array(mesh), numBoundaryPoints
 
 def clusterPoints(mesh):
-	clustering = DBSCAN(eps=30, min_samples=5).fit(mesh)
+	clustering = DBSCAN(eps=52, min_samples=17).fit(mesh)
 	return clustering
 
 def drawtriangles(image, mesh):
@@ -67,6 +67,7 @@ def drawtriangles(image, mesh):
 
 def drawPoints(image, mesh, clustering, numBoundaryPoints):
 	colors = [(0,0,0)]
+	random.seed()
 	for i in range(len(clustering.core_sample_indices_)):
 		color = np.uint8([[[random.randint(0, 360), 255, 255]]])
 		color = tuple(cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0,0].tolist())
