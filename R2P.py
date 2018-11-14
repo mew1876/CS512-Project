@@ -65,7 +65,7 @@ def drawtriangles(image, mesh):
 	    	if not pt2[0] < rect[0] and not pt2[1] < rect[1] and not pt2[0] > rect[2] and not pt2[1] > rect[3]:
 			        cv2.line(image, pt1, pt2, (0,0,0), 1, cv2.LINE_8, 0)
 
-def drawPoints(image, mesh, clustering, numBoundaryPoints):
+def drawPoints(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 	colors = [(0,0,0)]
 	for i in range(len(set(clustering.labels_)) - 1):
 		color = np.uint8([[[25 * i, 255, 255]]])
@@ -74,8 +74,12 @@ def drawPoints(image, mesh, clustering, numBoundaryPoints):
 	for i, (row, col) in enumerate(mesh):
 		color = colors[clustering.labels_[i - numBoundaryPoints] + 1] if i >= numBoundaryPoints else (255, 255, 255)
 		cv2.circle(image, (col, row), 3, color, thickness=cv2.FILLED)
+	_, centers, _ = zip(*clusteringInfo)
+	for index, center in enumerate(centers):
+		cv2.circle(image, (int(center[1]), int(center[0])), 20, colors[index + 1], thickness=cv2.FILLED)
+		print((int(center[1]), int(center[0])), colors[index + 1])
 
-def getEdgeLengths(clusteringInfo):
+def getNormalizedEdgeLengths(clusteringInfo, shape):
 	edgeLengths = []
 	for i in range(len(clusteringInfo)):
 		edgeILengths = []
@@ -97,22 +101,39 @@ def getClusterInfo(mesh, clustering, saliency):
 		clusters[label + 1].append(mesh[index])
 		saliencyScores[label + 1] += (saliency[mesh[index][0], mesh[index][1]])
 	for index, cluster in enumerate(clusters):
-		if len(cluster) == 0:
+		if len(cluster) == 0 or index == 0:
 			continue
 		contour = np.array(cluster)
 		hull = cv2.convexHull(contour)
 		moments = cv2.moments(contour)
 		areas.append(cv2.contourArea(hull))
-		centers.append((moments['m01']/moments['m00'], moments['m10']/moments['m00']))
-	return list(zip(areas, centers, saliencyScores))
+		# centers.append((moments['m10']/moments['m00'], moments['m01']/moments['m00']))
+		centers.append(sum(contour) / len(contour))
+	return list(zip(areas, centers, saliencyScores[1:]))
 
-# def reorderBySaliency(clustering, clusteringInfo):
-	
+def reorder(clustering, clusteringInfo, reordering):
+	reordering = dict(enumerate(reordering))
+	print(reordering)
+	for index, label in enumerate(clustering.labels_):
+		if label > -1 and label < len(reordering):
+			clustering.labels_[index] = reordering[label]
+	newInfo = []
+	for key in reordering:
+		newInfo.append(clusteringInfo[reordering[key]])
+	print(newInfo)
+	return clustering, newInfo
 
-def graphMatch(sourceClusteringInfo, referenceClusteringInfo):
+def reorderBySaliency(clustering, clusteringInfo):
+	_, _, saliencyScores = zip(*clusteringInfo)
+	reordering = list(zip(range(len(clusteringInfo)), saliencyScores))
+	reordering.sort(key=lambda x : x[1], reverse=True)
+	reordering, _ = zip(*reordering)
+	return reorder(clustering, clusteringInfo, reordering)
+
+def graphMatch(sourceClusteringInfo, sourceShape, referenceClusteringInfo, referenceShape):
 	# Get edge lengths
-	sourceEdges = getEdgeLengths(sourceClusteringInfo)
-	refEdges = getEdgeLengths(referenceClusteringInfo)
+	sourceEdges = getNormalizedEdgeLengths(sourceClusteringInfo, sourceShape)
+	referenceEdges = getNormalizedEdgeLengths(referenceClusteringInfo, referenceShape)
 	# Create affinity matrix
 	dimension = len(sourceClusteringInfo) * len(referenceClusteringInfo)
 	affinity = np.ndarray(shape=(dimension, dimension), dtype=float)
@@ -125,7 +146,7 @@ def graphMatch(sourceClusteringInfo, referenceClusteringInfo):
 			if sourceIndex1 == sourceIndex2 and referenceIndex1 == referenceIndex2:
 				affinity[row, col] = min(sourceClusteringInfo[sourceIndex1][0], referenceClusteringInfo[referenceIndex1][0]) / max(sourceClusteringInfo[sourceIndex1][0], referenceClusteringInfo[referenceIndex1][0])
 			elif sourceIndex1 != sourceIndex2 and referenceIndex1 != referenceIndex2:
-				affinity[row, col] = 1 / abs(sourceEdges[sourceIndex1][sourceIndex2] - refEdges[referenceIndex1][referenceIndex2])
+				affinity[row, col] = 1 / abs(sourceEdges[sourceIndex1][sourceIndex2] - referenceEdges[referenceIndex1][referenceIndex2])
 			else:
 				affinity[row, col] = 0
 	# Find best matching
@@ -153,10 +174,10 @@ def processImage(image):
 	clustering = clusterPoints(meshWithoutBoundaries)
 	return mesh, saliency, clustering, numBoundaryPoints
 
-def drawMesh(image, mesh, clustering, numBoundaryPoints):
+def drawMesh(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 	meshImage = image.copy()
 	drawtriangles(meshImage, mesh)
-	drawPoints(meshImage, mesh, clustering, numBoundaryPoints)
+	drawPoints(meshImage, mesh, clustering, clusteringInfo, numBoundaryPoints)
 	return meshImage
 
 def main():
@@ -171,23 +192,28 @@ def main():
 
 	source = cv2.imread(sourceName)
 	sourceMesh, sourceSaliency, sourceClustering, sourceNumBoundaryPoints = processImage(source)
-	sourceClusteringInfo = getClusterInfo(sourceMesh, sourceClustering, sourceSaliency)
-	# reorderBySaliency(sourceClustering, sourceClusteringInfo)
+	sourceClusteringInfo = getClusterInfo(sourceMesh[sourceNumBoundaryPoints:], sourceClustering, sourceSaliency)
+	sourceClustering, sourceClusteringInfo = reorderBySaliency(sourceClustering, sourceClusteringInfo)
 
 	reference = cv2.imread(referenceName)
 	referenceMesh, referenceSaliency, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
-	referenceClusteringInfo = getClusterInfo(referenceMesh, referenceClustering, referenceSaliency)
-	# reorderBySaliency(referenceClustering, referenceClusteringInfo)
+	referenceClusteringInfo = getClusterInfo(referenceMesh[referenceNumBoundaryPoints:], referenceClustering, referenceSaliency)
+	referenceClustering, referenceClusteringInfo = reorderBySaliency(referenceClustering, referenceClusteringInfo)
 
 	nObjects = 3
-	matching = graphMatch(sourceClusteringInfo[:nObjects], referenceClusteringInfo[:nObjects])
+	if len(sourceClusteringInfo) < nObjects or len(referenceClusteringInfo) < nObjects:
+		print("Not enough objects found in both images")
+		return
 
-	# use matching to reorder clusters (so corresponding clusters get matching colors)
-
+	matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
 	print(matching)
+	sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
+	print(sourceClusteringInfo)
+	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
 
-	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceNumBoundaryPoints)
-	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceNumBoundaryPoints)
+	# when matching is (1, 2, 0) center colors are wrong
+	# matching is a complete toss-up
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
