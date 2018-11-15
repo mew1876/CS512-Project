@@ -2,6 +2,7 @@ import random
 import itertools
 import cv2
 import numpy as np
+from collections import Counter
 from sklearn.cluster import DBSCAN
 
 def edgeDetection(image):
@@ -71,13 +72,18 @@ def drawPoints(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 		color = np.uint8([[[25 * i, 255, 255]]])
 		color = tuple(cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0,0].tolist())
 		colors.append(color)
+	done = []
 	for i, (row, col) in enumerate(mesh):
 		color = colors[clustering.labels_[i - numBoundaryPoints] + 1] if i >= numBoundaryPoints else (255, 255, 255)
 		cv2.circle(image, (col, row), 3, color, thickness=cv2.FILLED)
+		# if i >= numBoundaryPoints:
+		# 	print(clustering.labels_[i - numBoundaryPoints] + 1)
+		# print(row, col, color)
 	_, centers, _ = zip(*clusteringInfo)
 	for index, center in enumerate(centers):
 		cv2.circle(image, (int(center[1]), int(center[0])), 20, colors[index + 1], thickness=cv2.FILLED)
-		print((int(center[1]), int(center[0])), colors[index + 1])
+		# print((int(center[0]), int(center[1])), colors[index + 1])
+		# print('c', center, colors[index + 1])
 
 def getNormalizedEdgeLengths(clusteringInfo, shape):
 	edgeLengths = []
@@ -113,14 +119,15 @@ def getClusterInfo(mesh, clustering, saliency):
 
 def reorder(clustering, clusteringInfo, reordering):
 	reordering = dict(enumerate(reordering))
-	print(reordering)
 	for index, label in enumerate(clustering.labels_):
 		if label > -1 and label < len(reordering):
 			clustering.labels_[index] = reordering[label]
 	newInfo = []
-	for key in reordering:
-		newInfo.append(clusteringInfo[reordering[key]])
-	print(newInfo)
+	inverseOrdering = [(v,k) for k,v in reordering.items()]
+	inverseOrdering.sort(key=lambda x : x[0])
+	inverseOrdering = dict(inverseOrdering)
+	for key in inverseOrdering:
+		newInfo.append(clusteringInfo[inverseOrdering[key]])
 	return clustering, newInfo
 
 def reorderBySaliency(clustering, clusteringInfo):
@@ -128,7 +135,8 @@ def reorderBySaliency(clustering, clusteringInfo):
 	reordering = list(zip(range(len(clusteringInfo)), saliencyScores))
 	reordering.sort(key=lambda x : x[1], reverse=True)
 	reordering, _ = zip(*reordering)
-	return reorder(clustering, clusteringInfo, reordering)
+	clustering, clusteringInfo = reorder(clustering, clusteringInfo, reordering)
+	return clustering, clusteringInfo
 
 def graphMatch(sourceClusteringInfo, sourceShape, referenceClusteringInfo, referenceShape):
 	# Get edge lengths
@@ -182,10 +190,10 @@ def drawMesh(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 
 def main():
 	# sourceName = '../beach.jpg'
-	sourceName = '../Toss.png'
+	sourceName = '../toss.png'
 	referenceName = '../volley.png'
 	# sourceName = '../cat.png'
-	# sourceName = '../elephant.png'
+	# referenceName = '../elephant.png'
 	# sourceName = '../right tree.png'
 	# sourceName = '../center tree.png'
 	# sourceName = '../lego.png'
@@ -208,12 +216,9 @@ def main():
 	matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
 	print(matching)
 	sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
-	print(sourceClusteringInfo)
+
 	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
-
-	# when matching is (1, 2, 0) center colors are wrong
-	# matching is a complete toss-up
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
