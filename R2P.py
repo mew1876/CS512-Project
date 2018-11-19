@@ -224,7 +224,8 @@ def drawMesh(image, mesh, triangles, clustering, clusteringInfo, numBoundaryPoin
 def main():
 	# sourceName = '../beach.jpg'
 	sourceName = '../toss.png'
-	referenceName = '../volley.png'
+	# referenceName = '../volley.png'
+	referenceName = '../volleyResize.png'
 	# sourceName = '../cat.png'
 	# referenceName = '../elephant.png'
 	# sourceName = '../right tree.png'

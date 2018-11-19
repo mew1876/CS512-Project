@@ -86,6 +86,9 @@ def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClust
 			if currentRadius <= radiusMax: # check distance constraint
 				# loop 3
 				for u in range(lenMesh): 
+					if u < numBoundaryPoints:
+						newMesh[n,u] = [<float>mesh[u][0], <float>mesh[u][1]]
+						continue
 					newMeshCalcPt1 = [<float>(calculation[n,u]*(mesh[u][0] + qn[0] - sn[0])),<float>(calculation[n,u]*(mesh[u][1] + qn[1] - sn[1]))]
 					newMeshCalcPt2 = [<float>0.0,<float>0.0]
 					newMeshCalcPt3 = 0
