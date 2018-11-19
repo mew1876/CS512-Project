@@ -1,3 +1,5 @@
+# Michael Walsh & Julianna Bochnak
+
 import random
 import itertools
 from time import sleep
