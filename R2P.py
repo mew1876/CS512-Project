@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from collections import Counter
 from sklearn.cluster import DBSCAN
+import Project
 
 def edgeDetection(image):
 	gray = image #cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -54,9 +55,12 @@ def clusterPoints(mesh):
 
 def drawtriangles(image, mesh):
 	rect = (0, 0, image.shape[1], image.shape[0])
-	subdiv = cv2.Subdiv2D(rect);
-	subdiv.insert([point[::-1] for point in mesh])
-	edgeList = subdiv.getEdgeList();
+	subdiv = cv2.Subdiv2D(rect)
+	for point in mesh:
+		if point[0] >= 0 and point[0] < image.shape[0]:
+			if point[1] >= 0 and point[1] < image.shape[1]:
+				subdiv.insert([point[::-1]])
+	edgeList = subdiv.getEdgeList()
 	size = image.shape
 	for edge in edgeList:
 	    pt1 = (edge[0], edge[1])
@@ -75,7 +79,7 @@ def drawPoints(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 	done = []
 	for i, (row, col) in enumerate(mesh):
 		color = colors[clustering.labels_[i - numBoundaryPoints] + 1] if i >= numBoundaryPoints else (255, 255, 255)
-		cv2.circle(image, (col, row), 3, color, thickness=cv2.FILLED)
+		cv2.circle(image, (int(col), int(row)), 3, color, thickness=cv2.FILLED)
 		# if i >= numBoundaryPoints:
 		# 	print(clustering.labels_[i - numBoundaryPoints] + 1)
 		# print(row, col, color)
@@ -173,6 +177,7 @@ def graphMatch(sourceClusteringInfo, sourceShape, referenceClusteringInfo, refer
 			bestMatch = indices
 	return bestMatch
 
+
 def processImage(image):
 	canny = edgeDetection(image)
 	saliency = getSaliency(image)
@@ -217,11 +222,21 @@ def main():
 	print(matching)
 	sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
 
+	newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
+
 	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
+	newMeshClustering = sourceClustering
+	newMeshClusteringInfo = sourceClusteringInfo.copy()
+	for i in range(len(sourceClusteringInfo)):
+		# [(area,(centerX,centerY), saliencyScore),...]
+		newMeshClusteringInfo[i] = (newMeshClusteringInfo[i][0], newSourceObjectPositions[i],newMeshClusteringInfo[i][2])
+	newMeshImage = drawMesh(source, newMesh, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
+	cv2.imshow('newMesh', newMeshImage)
+
 	cv2.waitKey(0)
 
 main()
