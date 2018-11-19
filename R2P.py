@@ -2,6 +2,8 @@ import random
 import itertools
 from time import sleep
 import sys
+import os
+import re
 import cv2
 import numpy as np
 from collections import Counter
@@ -37,8 +39,8 @@ def createMesh(canny, saliency):
 		mesh.extend(((0, col), (rows - 1, col)))
 	numBoundaryPoints = len(mesh)
 	# Create Interior Points
-	for row in range(rows):
-		for col in range(cols):
+	for row in range(edgeSuppressDistance * 2, rows - edgeSuppressDistance * 2):
+		for col in range(edgeSuppressDistance * 2, cols - edgeSuppressDistance * 2):
 			if canny[row, col] == 255:
 				if validEdgePoints[row, col] == 0 and random.random() < edgeChance:
 					mesh.append((row, col))
@@ -124,7 +126,21 @@ def getClusterInfo(mesh, clustering, saliency):
 		moments = cv2.moments(contour)
 		areas.append(cv2.contourArea(hull))
 		# centers.append((moments['m10']/moments['m00'], moments['m01']/moments['m00']))
-		centers.append(sum(contour) / len(contour))
+		minRow = -1
+		maxRow = 0
+		minCol = -1
+		maxCol = 0
+		for point in cluster:
+			if point[0] < minRow or minRow == -1:
+				minRow = point[0]
+			elif point[0] > maxRow:
+				maxRow = point[0]
+			if point[1] < minCol or minCol == -1:
+				minCol = point[1]
+			elif point[1] > maxCol:
+				maxCol = point[1]
+		centers.append(np.array([minRow + (maxRow - minRow) / 2, minCol + (maxCol - minCol) / 2]))
+		# centers.append(sum(contour) / len(contour))
 	return list(zip(areas, centers, saliencyScores[1:]))
 
 def reorder(clustering, clusteringInfo, reordering):
@@ -225,31 +241,43 @@ def drawMesh(image, mesh, triangles, clustering, clusteringInfo, numBoundaryPoin
 def main():
 	# sourceName = '../beach.jpg'
 	sourceName = '../toss.png'
-	# referenceName = '../volley.png'
-	referenceName = '../volleyResize.png'
+	referenceName = '../volley.png'
+	# referenceName = '../volleyResize.png'
 	# sourceName = '../cat.png'
 	# referenceName = '../elephant.png'
 	# sourceName = '../right tree.png'
 	# sourceName = '../center tree.png'
 	# sourceName = '../lego.png'
 
-	nObjects = 2
+	nObjects = 3
+	random.seed(1)
 
 	if len(sys.argv) == 4:
 		sourceName = sys.argv[1]
 		referenceName = sys.argv[2]
 		nObjects = int(sys.argv[3])
 
+	folder = re.match(r'.*/([^/]+)\.', sourceName).group(1) + '/'
+	if not os.path.exists(folder):
+	    os.makedirs(folder)
+
+	print("Recomposing", sourceName, "to match", referenceName)
+	print("Getting source mesh")
 	source = cv2.imread(sourceName)
 	sourceMesh, sourceSaliency, sourceClustering, sourceNumBoundaryPoints = processImage(source)
+	cv2.imwrite(folder + 'sourceSaliency.png', sourceSaliency)
+	cv2.imshow('SourceSaliency', sourceSaliency)
 	sourceClusteringInfo = getClusterInfo(sourceMesh[sourceNumBoundaryPoints:], sourceClustering, sourceSaliency)
 	sourceClustering, sourceClusteringInfo = reorderBySaliency(sourceClustering, sourceClusteringInfo)
 	sourceTriangles = getTriangles(sourceMesh, source.shape)
 	sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 	cv2.imshow('SourceMesh', sourceMeshImage)
 
+	print("Getting reference mesh")
 	reference = cv2.imread(referenceName)
 	referenceMesh, referenceSaliency, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
+	cv2.imwrite(folder + 'referenceSaliency.png', referenceSaliency)
+	cv2.imshow('ReferenceSaliency', referenceSaliency)
 	referenceClusteringInfo = getClusterInfo(referenceMesh[referenceNumBoundaryPoints:], referenceClustering, referenceSaliency)
 	referenceClustering, referenceClusteringInfo = reorderBySaliency(referenceClustering, referenceClusteringInfo)
 	referenceTriangles = getTriangles(referenceMesh, reference.shape)
@@ -259,6 +287,7 @@ def main():
 	cv2.waitKey(1)
 
 	if len(sourceClusteringInfo) >= nObjects and len(referenceClusteringInfo) >= nObjects:
+		print("Matching objects")
 		matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
 		sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
 		print(matching)
@@ -266,7 +295,9 @@ def main():
 		cv2.imshow('SourceMesh', sourceMeshImage)
 		cv2.waitKey(1)
 
-		newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
+		print("Warping mesh")
+		newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh, sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
+		print("Warping image")
 		transformedSource = transformImage(source, sourceMesh, newMesh, sourceTriangles)
 		newMeshClustering = sourceClustering
 		newMeshClusteringInfo = sourceClusteringInfo.copy()
@@ -274,10 +305,16 @@ def main():
 			# [(area,(centerX,centerY), saliencyScore),...]
 			newMeshClusteringInfo[i] = (newMeshClusteringInfo[i][0], newSourceObjectPositions[i],newMeshClusteringInfo[i][2])
 		newMeshImage = drawMesh(source, newMesh, sourceTriangles, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
-		cv2.imshow('newMesh', newMeshImage)
-		cv2.imshow('test', transformedSource)
+		cv2.imshow('NewMesh', newMeshImage)
+		cv2.imshow('Recomposed', transformedSource)
+		cv2.imwrite(folder + 'newMesh.png', newMeshImage)
+		cv2.imwrite(folder + 'recomposed.png', transformedSource)
 	else:
 		print("Not enough objects found in both images")
+
+	cv2.imwrite(folder + 'sourceMesh.png', sourceMeshImage)
+	cv2.imwrite(folder + 'referenceMesh.png', referenceMeshImage)
+
 	cv2.waitKey(0)
 
 main()

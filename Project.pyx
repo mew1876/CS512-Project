@@ -6,8 +6,6 @@ cimport cython
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 
-# todo: add type for Info parameters
-# todo: add imageHeight for check on possibleQnSet creation
 def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClusteringLabels, long long numBoundaryPoints, long long imageWidth, long long imageHeight, long long nObjects): #clusterInfo = [(area,(centerX,centerY), saliencyScore),...]
 	cdef int radiusMax = int(.05*imageWidth)
 	cdef float alpha = 0.1
@@ -85,10 +83,17 @@ def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClust
 			currentRadius = np.absolute(np.linalg.norm(qn-pn))
 			if currentRadius <= radiusMax: # check distance constraint
 				# loop 3
-				for u in range(lenMesh): 
-					if u < numBoundaryPoints:
+				for u in range(lenMesh):
+					snapRow = -1
+					snapCol = -1 
+					if u < 4:
 						newMesh[n,u] = [<float>mesh[u][0], <float>mesh[u][1]]
 						continue
+					elif u < numBoundaryPoints:
+						if mesh[u][0] == 0 or mesh[u][0] == imageHeight - 1:
+							snapRow = mesh[u][0]
+						elif mesh[u][1] == 0 or mesh[u][1] == imageWidth - 1:
+							snapCol = mesh[u][1]
 					newMeshCalcPt1 = [<float>(calculation[n,u]*(mesh[u][0] + qn[0] - sn[0])),<float>(calculation[n,u]*(mesh[u][1] + qn[1] - sn[1]))]
 					newMeshCalcPt2 = [<float>0.0,<float>0.0]
 					newMeshCalcPt3 = 0
@@ -99,6 +104,10 @@ def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClust
 							newMeshCalcPt2[1] += calculation[k,u]*newMesh[k,u][1]
 						newMeshCalcPt3 += calculation[k,u]
 					newMesh[n,u] = [(newMeshCalcPt1[0]+newMeshCalcPt2[0])/newMeshCalcPt3,(newMeshCalcPt1[1]+newMeshCalcPt2[1])/newMeshCalcPt3]
+					if snapRow != -1:
+						newMesh[n, u][0] = snapRow
+					elif snapCol != -1:
+						newMesh[n, u][1] = snapCol
 			else: # can't leave untouched numbers as zero because we need the minimum!
 				objectiveD[qIndex] = 99999999
 				objectiveE[qIndex] = 99999999
