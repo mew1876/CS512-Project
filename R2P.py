@@ -1,6 +1,7 @@
 import random
 import itertools
 from time import sleep
+import sys
 import cv2
 import numpy as np
 from collections import Counter
@@ -223,27 +224,39 @@ def drawMesh(image, mesh, triangles, clustering, clusteringInfo, numBoundaryPoin
 
 def main():
 	# sourceName = '../beach.jpg'
-	sourceName = '../toss.png'
-	referenceName = '../volley.png'
-	# sourceName = '../cat.png'
-	# referenceName = '../elephant.png'
+	# sourceName = '../toss.png'
+	# referenceName = '../volley.png'
+	sourceName = '../cat.png'
+	referenceName = '../elephant.png'
 	# sourceName = '../right tree.png'
 	# sourceName = '../center tree.png'
 	# sourceName = '../lego.png'
+
+	nObjects = 2
+
+	if len(sys.argv) == 4:
+		sourceName = sys.argv[1]
+		referenceName = sys.argv[2]
+		nObjects = int(sys.argv[3])
 
 	source = cv2.imread(sourceName)
 	sourceMesh, sourceSaliency, sourceClustering, sourceNumBoundaryPoints = processImage(source)
 	sourceClusteringInfo = getClusterInfo(sourceMesh[sourceNumBoundaryPoints:], sourceClustering, sourceSaliency)
 	sourceClustering, sourceClusteringInfo = reorderBySaliency(sourceClustering, sourceClusteringInfo)
 	sourceTriangles = getTriangles(sourceMesh, source.shape)
+	sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+	cv2.imshow('SourceMesh', sourceMeshImage)
 
 	reference = cv2.imread(referenceName)
 	referenceMesh, referenceSaliency, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
 	referenceClusteringInfo = getClusterInfo(referenceMesh[referenceNumBoundaryPoints:], referenceClustering, referenceSaliency)
 	referenceClustering, referenceClusteringInfo = reorderBySaliency(referenceClustering, referenceClusteringInfo)
 	referenceTriangles = getTriangles(referenceMesh, reference.shape)
+	referenceMeshImage = drawMesh(reference, referenceMesh, referenceTriangles, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
+	cv2.imshow('ReferenceMesh', referenceMeshImage)
 
-	nObjects = 3
+	cv2.waitKey(1)
+
 	if len(sourceClusteringInfo) >= nObjects and len(referenceClusteringInfo) >= nObjects:
 		matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
 		sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
@@ -261,14 +274,6 @@ def main():
 		cv2.imshow('test', transformedSource)
 	else:
 		print("Not enough objects found in both images")
-
-	sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
-	referenceMeshImage = drawMesh(reference, referenceMesh, referenceTriangles, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
-
-
-	cv2.imshow('SourceMesh', sourceMeshImage)
-	cv2.imshow('ReferenceMesh', referenceMeshImage)
-
 	cv2.waitKey(0)
 
 main()
