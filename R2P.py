@@ -248,7 +248,7 @@ def main():
 	print(matching)
 
 	# Get new mesh based on matching
-	# transformedMesh = sourceMesh.copy()
+	transformedMesh = sourceMesh.copy()
 	# transformedMesh[500] = [300, 300]
 
 	sourceTriangles = getTriangles(sourceMesh, source.shape)
