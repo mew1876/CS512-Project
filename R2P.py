@@ -195,13 +195,15 @@ def	transformImage(image, originalMesh, transformedMesh, triangles):
 			maxCol = max(transformedMesh[triangle[0]][1], transformedMesh[triangle[1]][1], transformedMesh[triangle[2]][1])
 			for row in range(minRow, maxRow):
 				for col in range(minCol, maxCol):
-					if cv2.pointPolygonTest(triangleContour, (row, col), False) >= 0:
-						# Point is in the triangle
-						barry01 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[1]]])) / signedArea
-						barry02 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[2]]])) / signedArea
-						barry12 = 1 - barry01 - barry02
-						floatCoords = barry12 * originalMesh[triangle[0]] + barry02 * originalMesh[triangle[1]] + barry01 * originalMesh[triangle[2]]
-						transformedImage[row, col] = image[int(floatCoords[0]), int(floatCoords[1])]
+					if 0 <= row < image.shape[0] and 0 <= col < image.shape[1]:
+						if cv2.pointPolygonTest(triangleContour, (row, col), False) >= 0:
+							# Point is in the triangle
+							barry01 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[1]]])) / signedArea
+							barry02 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[2]]])) / signedArea
+							barry12 = 1 - barry01 - barry02
+							floatCoords = barry12 * originalMesh[triangle[0]] + barry02 * originalMesh[triangle[1]] + barry01 * originalMesh[triangle[2]]
+							if 0 <= int(floatCoords[0]) < image.shape[0] and 0 <= int(floatCoords[1]) < image.shape[1]:
+								transformedImage[row, col] = image[int(floatCoords[0]), int(floatCoords[1])]
 	return transformedImage
 
 def processImage(image):
@@ -233,48 +235,39 @@ def main():
 	sourceMesh, sourceSaliency, sourceClustering, sourceNumBoundaryPoints = processImage(source)
 	sourceClusteringInfo = getClusterInfo(sourceMesh[sourceNumBoundaryPoints:], sourceClustering, sourceSaliency)
 	sourceClustering, sourceClusteringInfo = reorderBySaliency(sourceClustering, sourceClusteringInfo)
+	sourceTriangles = getTriangles(sourceMesh, source.shape)
 
 	reference = cv2.imread(referenceName)
 	referenceMesh, referenceSaliency, referenceClustering, referenceNumBoundaryPoints = processImage(reference)
 	referenceClusteringInfo = getClusterInfo(referenceMesh[referenceNumBoundaryPoints:], referenceClustering, referenceSaliency)
 	referenceClustering, referenceClusteringInfo = reorderBySaliency(referenceClustering, referenceClusteringInfo)
-
-	nObjects = 3
-	if len(sourceClusteringInfo) < nObjects or len(referenceClusteringInfo) < nObjects:
-		print("Not enough objects found in both images")
-		return
-
-	matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
-	sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
-	print(matching)
-
-	# Get new mesh based on matching
-	# transformedMesh = sourceMesh.copy()
-	# transformedMesh[500] = [300, 300]
-
-	sourceTriangles = getTriangles(sourceMesh, source.shape)
 	referenceTriangles = getTriangles(referenceMesh, reference.shape)
 
-	newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
+	nObjects = 3
+	if len(sourceClusteringInfo) >= nObjects and len(referenceClusteringInfo) >= nObjects:
+		matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
+		sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
+		print(matching)
 
-	# TODO: replace 3rd arg with transformed mesh
-	# sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
-	# cv2.imshow('SourceMesh', sourceMeshImage)
-	transformedSource = transformImage(source, sourceMesh, newMesh, sourceTriangles)
+		newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
+		transformedSource = transformImage(source, sourceMesh, newMesh, sourceTriangles)
+		newMeshClustering = sourceClustering
+		newMeshClusteringInfo = sourceClusteringInfo.copy()
+		for i in range(len(sourceClusteringInfo)):
+			# [(area,(centerX,centerY), saliencyScore),...]
+			newMeshClusteringInfo[i] = (newMeshClusteringInfo[i][0], newSourceObjectPositions[i],newMeshClusteringInfo[i][2])
+		newMeshImage = drawMesh(source, newMesh, sourceTriangles, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+		cv2.imshow('newMesh', newMeshImage)
+		cv2.imshow('test', transformedSource)
+	else:
+		print("Not enough objects found in both images")
 
 	sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 	referenceMeshImage = drawMesh(reference, referenceMesh, referenceTriangles, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
-	newMeshClustering = sourceClustering
-	newMeshClusteringInfo = sourceClusteringInfo.copy()
-	for i in range(len(sourceClusteringInfo)):
-		# [(area,(centerX,centerY), saliencyScore),...]
-		newMeshClusteringInfo[i] = (newMeshClusteringInfo[i][0], newSourceObjectPositions[i],newMeshClusteringInfo[i][2])
-	newMeshImage = drawMesh(source, newMesh, sourceTriangles, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
-	cv2.imshow('newMesh', newMeshImage)
-	cv2.imshow('test', transformedSource)
 
 	cv2.waitKey(0)
 

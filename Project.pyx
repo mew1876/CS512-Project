@@ -20,9 +20,10 @@ def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClust
 	cdef int u, n, row, col, qIndex, k, cluster, pointIndex # for loop variables
 
 	# sort referenceInfo by object size, and sort sourceInfo the same way
-	referenceInfoSorted = sorted(referenceInfo,key=lambda info: info[0])
+	referenceInfoSorted = sorted(referenceInfo[:nObjects],key=lambda info: info[0])
+	referenceInfoSorted.extend(referenceInfo[nObjects:])
 	sourceInfoSorted = []
-	for sortedIndex in range(lenSourceInfo): # index after object size sort in beginning
+	for sortedIndex in range(nObjects): # index after object size sort in beginning
 		unsortedIndex = referenceInfo.index(referenceInfoSorted[sortedIndex]) # index it should return as
 		# looping through the objects in sorted order, so appending here will sort properly
 		sourceInfoSorted.append(sourceInfo[unsortedIndex])
@@ -137,7 +138,7 @@ def warpMesh(long[:,:] mesh, sourceInfo, referenceInfo, long long[:] sourceClust
 
 	# return objects to original cluster ordering
 	finalQPositionsUnsorted = []
-	for unsortedIndex in range(lenSourceInfo): # index after object size sort in beginning
+	for unsortedIndex in range(nObjects): # index after object size sort in beginning
 		sortedIndex = sourceInfoSorted.index(sourceInfo[unsortedIndex]) # index it should return as
 		# looping through the objects in original/unsorted order, so appending here will sort properly
 		finalQPositionsUnsorted.append(finalQPositions[sortedIndex])
