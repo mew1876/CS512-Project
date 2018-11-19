@@ -1,5 +1,6 @@
 import random
 import itertools
+from time import sleep
 import cv2
 import numpy as np
 from collections import Counter
@@ -37,38 +38,47 @@ def createMesh(canny, saliency):
 	# Create Interior Points
 	for row in range(rows):
 		for col in range(cols):
-				if canny[row, col] == 255:
-					if validEdgePoints[row, col] == 0 and random.random() < edgeChance:
-						mesh.append((row, col))
-						distance = edgeSuppressDistance if saliency[row, col] == 0 else int(edgeSuppressDistance * 0.75)
-						cv2.circle(validEdgePoints, (col, row), distance, (255), thickness=cv2.FILLED)
-						cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
-				else:
-					if validExtraPoints[row, col] == 0 and random.random() < nonEdgeChance:
-						mesh.append((row, col))
-						cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
+			if canny[row, col] == 255:
+				if validEdgePoints[row, col] == 0 and random.random() < edgeChance:
+					mesh.append((row, col))
+					distance = edgeSuppressDistance if saliency[row, col] == 0 else int(edgeSuppressDistance * 0.75)
+					cv2.circle(validEdgePoints, (col, row), distance, (255), thickness=cv2.FILLED)
+					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
+			else:
+				if validExtraPoints[row, col] == 0 and random.random() < nonEdgeChance:
+					mesh.append((row, col))
+					cv2.circle(validExtraPoints, (col, row), extraSuppressDistance, (255), thickness=cv2.FILLED)
 	return	np.array(mesh), numBoundaryPoints
 
 def clusterPoints(mesh):
 	clustering = DBSCAN(eps=52, min_samples=17).fit(mesh)
 	return clustering
 
-def drawtriangles(image, mesh):
-	rect = (0, 0, image.shape[1], image.shape[0])
-	subdiv = cv2.Subdiv2D(rect)
-	for point in mesh:
-		if point[0] >= 0 and point[0] < image.shape[0]:
-			if point[1] >= 0 and point[1] < image.shape[1]:
-				subdiv.insert([point[::-1]])
-	edgeList = subdiv.getEdgeList()
-	size = image.shape
-	for edge in edgeList:
-	    pt1 = (edge[0], edge[1])
-	    pt2 = (edge[2], edge[3])
-	    # if rect contains point 1 and point 2 and point 3
-	    if not pt1[0] < rect[0] and not pt1[1] < rect[1] and not pt1[0] > rect[2] and not pt1[1] > rect[3]:
-	    	if not pt2[0] < rect[0] and not pt2[1] < rect[1] and not pt2[0] > rect[2] and not pt2[1] > rect[3]:
-			        cv2.line(image, pt1, pt2, (0,0,0), 1, cv2.LINE_8, 0)
+def getTriangles(mesh, imageShape):
+	rect = (0, 0, imageShape[0], imageShape[1])
+	subdiv = cv2.Subdiv2D(rect);
+	subdiv.insert(list(mesh))
+	triangles = subdiv.getTriangleList();
+	filteredIndexTriangles = []
+	for triangle in triangles:
+		if (rect[0] <= triangle[0] < rect[2]
+			and rect[0] <= triangle[2] < rect[2]
+			and rect[0] <= triangle[4] < rect[2]
+			and rect[1] <= triangle[1] < rect[3]
+			and rect[1] <= triangle[3] < rect[3]
+			and rect[1] <= triangle[5] < rect[3]):
+				cornerIndices = []
+				for index in range(0, 6, 2):
+					cornerIndices.append(np.where((mesh == [triangle[index], triangle[index + 1]]).all(axis=1))[0][0])
+				filteredIndexTriangles.append(cornerIndices)
+	filteredIndexTriangles = np.array(filteredIndexTriangles)
+	return filteredIndexTriangles
+
+def drawTriangles(image, mesh, triangles):
+	for triangle in triangles:
+		cv2.line(image, (mesh[triangle[0], 1], mesh[triangle[0], 0]), (mesh[triangle[1], 1], mesh[triangle[1], 0]), (0,0,0), 1, cv2.LINE_8, 0)
+		cv2.line(image, (mesh[triangle[0], 1], mesh[triangle[0], 0]), (mesh[triangle[2], 1], mesh[triangle[2], 0]), (0,0,0), 1, cv2.LINE_8, 0)
+		cv2.line(image, (mesh[triangle[1], 1], mesh[triangle[1], 0]), (mesh[triangle[2], 1], mesh[triangle[2], 0]), (0,0,0), 1, cv2.LINE_8, 0)
 
 def drawPoints(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 	colors = [(0,0,0)]
@@ -80,14 +90,9 @@ def drawPoints(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
 	for i, (row, col) in enumerate(mesh):
 		color = colors[clustering.labels_[i - numBoundaryPoints] + 1] if i >= numBoundaryPoints else (255, 255, 255)
 		cv2.circle(image, (int(col), int(row)), 3, color, thickness=cv2.FILLED)
-		# if i >= numBoundaryPoints:
-		# 	print(clustering.labels_[i - numBoundaryPoints] + 1)
-		# print(row, col, color)
 	_, centers, _ = zip(*clusteringInfo)
 	for index, center in enumerate(centers):
 		cv2.circle(image, (int(center[1]), int(center[0])), 20, colors[index + 1], thickness=cv2.FILLED)
-		# print((int(center[0]), int(center[1])), colors[index + 1])
-		# print('c', center, colors[index + 1])
 
 def getNormalizedEdgeLengths(clusteringInfo, shape):
 	edgeLengths = []
@@ -136,7 +141,7 @@ def reorder(clustering, clusteringInfo, reordering):
 
 def reorderBySaliency(clustering, clusteringInfo):
 	_, _, saliencyScores = zip(*clusteringInfo)
-	reordering = list(zip(range(len(clusteringInfo)), saliencyScores))
+	reordering = list(enumerate(saliencyScores))
 	reordering.sort(key=lambda x : x[1], reverse=True)
 	reordering, _ = zip(*reordering)
 	clustering, clusteringInfo = reorder(clustering, clusteringInfo, reordering)
@@ -177,6 +182,27 @@ def graphMatch(sourceClusteringInfo, sourceShape, referenceClusteringInfo, refer
 			bestMatch = indices
 	return bestMatch
 
+def	transformImage(image, originalMesh, transformedMesh, triangles):
+	transformedImage = np.zeros(image.shape, dtype=np.uint8)
+	for triangle in triangles:
+		triangleContour = np.array([transformedMesh[triangle[0]], transformedMesh[triangle[1]], transformedMesh[triangle[2]]])
+		signedArea = cv2.contourArea(triangleContour)
+		if signedArea > 0:
+			# Triangle isn't flipped
+			minRow = min(transformedMesh[triangle[0]][0], transformedMesh[triangle[1]][0], transformedMesh[triangle[2]][0])
+			maxRow = max(transformedMesh[triangle[0]][0], transformedMesh[triangle[1]][0], transformedMesh[triangle[2]][0])
+			minCol = min(transformedMesh[triangle[0]][1], transformedMesh[triangle[1]][1], transformedMesh[triangle[2]][1])
+			maxCol = max(transformedMesh[triangle[0]][1], transformedMesh[triangle[1]][1], transformedMesh[triangle[2]][1])
+			for row in range(minRow, maxRow):
+				for col in range(minCol, maxCol):
+					if cv2.pointPolygonTest(triangleContour, (row, col), False) >= 0:
+						# Point is in the triangle
+						barry01 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[1]]])) / signedArea
+						barry02 = cv2.contourArea(np.array([[row, col], transformedMesh[triangle[0]], transformedMesh[triangle[2]]])) / signedArea
+						barry12 = 1 - barry01 - barry02
+						floatCoords = barry12 * originalMesh[triangle[0]] + barry02 * originalMesh[triangle[1]] + barry01 * originalMesh[triangle[2]]
+						transformedImage[row, col] = image[int(floatCoords[0]), int(floatCoords[1])]
+	return transformedImage
 
 def processImage(image):
 	canny = edgeDetection(image)
@@ -187,9 +213,9 @@ def processImage(image):
 	clustering = clusterPoints(meshWithoutBoundaries)
 	return mesh, saliency, clustering, numBoundaryPoints
 
-def drawMesh(image, mesh, clustering, clusteringInfo, numBoundaryPoints):
+def drawMesh(image, mesh, triangles, clustering, clusteringInfo, numBoundaryPoints):
 	meshImage = image.copy()
-	drawtriangles(meshImage, mesh)
+	drawTriangles(meshImage, mesh, triangles)
 	drawPoints(meshImage, mesh, clustering, clusteringInfo, numBoundaryPoints)
 	return meshImage
 
@@ -219,23 +245,36 @@ def main():
 		return
 
 	matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
-	print(matching)
 	sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
+	print(matching)
+
+	# Get new mesh based on matching
+	# transformedMesh = sourceMesh.copy()
+	# transformedMesh[500] = [300, 300]
+
+	sourceTriangles = getTriangles(sourceMesh, source.shape)
+	referenceTriangles = getTriangles(referenceMesh, reference.shape)
 
 	newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
 
-	sourceMeshImage = drawMesh(source, sourceMesh, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
-	referenceMeshImage = drawMesh(reference, referenceMesh, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
+	# TODO: replace 3rd arg with transformed mesh
+	# sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+	# cv2.imshow('SourceMesh', sourceMeshImage)
+	transformedSource = transformImage(source, sourceMesh, newMesh, sourceTriangles)
+
+	sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+	referenceMeshImage = drawMesh(reference, referenceMesh, referenceTriangles, referenceClustering, referenceClusteringInfo, referenceNumBoundaryPoints)
 	newMeshClustering = sourceClustering
 	newMeshClusteringInfo = sourceClusteringInfo.copy()
 	for i in range(len(sourceClusteringInfo)):
 		# [(area,(centerX,centerY), saliencyScore),...]
 		newMeshClusteringInfo[i] = (newMeshClusteringInfo[i][0], newSourceObjectPositions[i],newMeshClusteringInfo[i][2])
-	newMeshImage = drawMesh(source, newMesh, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+	newMeshImage = drawMesh(source, newMesh, sourceTriangles, newMeshClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
 
 	cv2.imshow('SourceMesh', sourceMeshImage)
 	cv2.imshow('ReferenceMesh', referenceMeshImage)
 	cv2.imshow('newMesh', newMeshImage)
+	cv2.imshow('test', transformedSource)
 
 	cv2.waitKey(0)
 
