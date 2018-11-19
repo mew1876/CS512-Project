@@ -261,6 +261,9 @@ def main():
 		matching = graphMatch(sourceClusteringInfo[:nObjects], source.shape, referenceClusteringInfo[:nObjects], reference.shape)
 		sourceClustering, sourceClusteringInfo = reorder(sourceClustering, sourceClusteringInfo, matching)
 		print(matching)
+		sourceMeshImage = drawMesh(source, sourceMesh, sourceTriangles, sourceClustering, sourceClusteringInfo, sourceNumBoundaryPoints)
+		cv2.imshow('SourceMesh', sourceMeshImage)
+		cv2.waitKey(1)
 
 		newSourceObjectPositions, newMesh = Project.warpMesh(sourceMesh,sourceClusteringInfo, referenceClusteringInfo, sourceClustering.labels_, sourceNumBoundaryPoints, source.shape[1], source.shape[0], nObjects)
 		transformedSource = transformImage(source, sourceMesh, newMesh, sourceTriangles)
