@@ -258,6 +258,9 @@ def main():
 		sourceName = sys.argv[1]
 		referenceName = sys.argv[2]
 		nObjects = int(sys.argv[3])
+	else:
+		print("Usage: python R2P.py <source> <reference> <number of objects>")
+		return
 
 	folder = re.match(r'.*/([^/]+)\.', sourceName).group(1) + '/'
 	if not os.path.exists(folder):
